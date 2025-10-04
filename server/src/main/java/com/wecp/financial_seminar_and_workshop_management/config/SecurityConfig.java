@@ -1,60 +1,95 @@
 package com.wecp.financial_seminar_and_workshop_management.config;
 
-import com.wecp.financial_seminar_and_workshop_management.jwt.JwtRequestFilter;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.config.annotation.authentication.builders.AuthenticationManagerBuilder;
-import org.springframework.security.config.annotation.method.configuration.EnableGlobalMethodSecurity;
+import org.springframework.security.authentication.AuthenticationProvider;
+import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
-import org.springframework.security.config.annotation.web.configuration.WebSecurityConfigurerAdapter;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+
+import com.wecp.financial_seminar_and_workshop_management.jwt.JwtRequestFilter;
+import com.wecp.financial_seminar_and_workshop_management.service.UserService;
 
 @Configuration
 @EnableWebSecurity
-@EnableGlobalMethodSecurity(prePostEnabled = true)
-public class SecurityConfig extends WebSecurityConfigurerAdapter {
+@EnableMethodSecurity
+public class SecurityConfig {
 
-    @Autowired private UserDetailsService userDetailsService;
-    @Autowired private PasswordEncoder passwordEncoder;
-    @Autowired private JwtRequestFilter jwtRequestFilter;
+    @Autowired
+    private JwtRequestFilter authFilter;
 
-    @Override
-    protected void configure(AuthenticationManagerBuilder auth) throws Exception {
-        auth.userDetailsService(userDetailsService)
-            .passwordEncoder(passwordEncoder);
+    @Bean
+    public UserDetailsService userDetailsService() {
+        return new UserService();
     }
 
     @Bean
-    @Override
-    public AuthenticationManager authenticationManagerBean() throws Exception {
-        return super.authenticationManagerBean();
+    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        return http.cors().and().csrf().disable()
+            .authorizeRequests()
+            // Public endpoints
+            .antMatchers("/api/user/login").permitAll()
+            .antMatchers("/api/user/register").permitAll()
+
+            // Institution endpoints
+            .antMatchers(HttpMethod.POST, "/api/institution/event").hasAuthority("institution")
+            .antMatchers(HttpMethod.PUT, "/api/institution/event/**").hasAuthority("institution")
+            .antMatchers(HttpMethod.POST, "/api/institution/event/**/resource").hasAuthority("institution")
+            .antMatchers(HttpMethod.POST, "/api/institution/event/**/professional").hasAuthority("institution")
+            .antMatchers(HttpMethod.GET, "/api/institution/events").hasAuthority("institution")
+            .antMatchers(HttpMethod.GET, "/api/institution/event/professionals").hasAuthority("institution")
+
+            // Professional endpoints
+            .antMatchers(HttpMethod.GET, "/api/professional/events").hasAnyAuthority("professional")
+            .antMatchers(HttpMethod.PUT, "/api/professional/event/**/status").hasAnyAuthority("professional", "institution")
+            .antMatchers(HttpMethod.POST, "/api/professional/event/**/feedback").hasAuthority("professional")
+
+            // Participant endpoints
+            .antMatchers(HttpMethod.GET, "/api/participant/events").hasAnyAuthority("participant","institution")
+            .antMatchers(HttpMethod.GET, "/api/participant/event/**/status").hasAnyAuthority("participant", "institution")
+            .antMatchers(HttpMethod.POST, "/api/participant/event/**/enroll").hasAuthority("participant")
+
+            // Finance endpoints
+            .antMatchers(HttpMethod.GET, "/api/finance/events").hasAnyAuthority("institution", "participant", "professional")
+
+            // All other API requests require authentication
+            .antMatchers("/api/**").authenticated()
+
+            .and()
+            .sessionManagement()
+                .sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+            .and()
+            .authenticationProvider(authenticationProvider())
+            .addFilterBefore(authFilter, UsernamePasswordAuthenticationFilter.class)
+            .build();
     }
 
-    @Override
-    protected void configure(HttpSecurity http) throws Exception {
-        http.csrf().disable()
-            .sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS)
-            .and().authorizeRequests()
-                .antMatchers("/api/user/register", "/api/user/login").permitAll()
+    @Bean
+    public PasswordEncoder passwordEncoders() {
+        return new BCryptPasswordEncoder();
+    }
 
-                // INSTITUTION endpoints
-                .antMatchers("/api/institution/**").hasAuthority("INSTITUTION")
+    @Bean
+    public AuthenticationProvider authenticationProvider(){
+        DaoAuthenticationProvider authenticationProvider = new DaoAuthenticationProvider();
+        authenticationProvider.setUserDetailsService(userDetailsService());
+        authenticationProvider.setPasswordEncoder(passwordEncoders());
+        return authenticationProvider;
+    }
 
-                // PROFESSIONAL endpoints
-                .antMatchers("/api/professional/**").hasAuthority("PROFESSIONAL")
-
-                // PARTICIPANT endpoints
-                .antMatchers("/api/participant/**").hasAuthority("PARTICIPANT")
-
-                .anyRequest().authenticated();
-
-        http.addFilterBefore(jwtRequestFilter, UsernamePasswordAuthenticationFilter.class);
+    @Bean
+    public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
+        return config.getAuthenticationManager();
     }
 }

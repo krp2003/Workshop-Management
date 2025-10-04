@@ -16,7 +16,6 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.server.ResponseStatusException;
 
 
 
@@ -33,30 +32,6 @@ public class RegisterAndLoginController {
         return ResponseEntity.ok(saved);
     }
 
-    // @PostMapping("/api/user/login")
-    // public ResponseEntity<LoginResponse> loginUser(@RequestBody LoginRequest loginRequest) {
-    //     try {
-    //         authenticationManager.authenticate(
-    //                 new UsernamePasswordAuthenticationToken(loginRequest.getUsername(), loginRequest.getPassword())
-    //         );
-    //     } catch (AuthenticationException ex) {
-    //         return ResponseEntity.status(401).build(); // 401 Unauthorized
-    //     }
-
-    //     User user = userService.getByUsername(loginRequest.getUsername());
-    //     UserDetails userDetails = userService.loadUserByUsername(user.getUsername());
-    //     String token = jwtUtil.generateToken(userDetails);
-
-    //     LoginResponse resp = new LoginResponse(
-    //             user.getId(), // if your LoginResponse uses getUserId/setUserId naming
-    //             token,
-    //             user.getUsername(),
-    //             user.getEmail(),
-    //             user.getRole()
-    //     );
-    //     return ResponseEntity.ok(resp);
-    // }
-
     @PostMapping("/api/user/login")
     public ResponseEntity<LoginResponse> loginUser(@RequestBody LoginRequest loginRequest) {
         try {
@@ -68,8 +43,12 @@ public class RegisterAndLoginController {
         }
     
         UserDetails userDetails = userService.loadUserByUsername(loginRequest.getUsername());
-        String token = jwtUtil.generateToken(userDetails);
-    
-        return ResponseEntity.ok(new LoginResponse(token));
+        User u = userService.getByUsername(loginRequest.getUsername());
+        String token = jwtUtil.generateToken(loginRequest.getUsername());
+
+        String role = u.getRole();
+        Long userId = u.getId();
+        System.out.println("User Roles: " + role);
+        return ResponseEntity.ok(new LoginResponse(token, role, userId));
     }
 }
