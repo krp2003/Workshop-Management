@@ -2,61 +2,82 @@ package com.wecp.financial_seminar_and_workshop_management.jwt;
 
 import io.jsonwebtoken.*;
 import io.jsonwebtoken.security.Keys;
+
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Component;
 
+import com.wecp.financial_seminar_and_workshop_management.entity.User;
+import com.wecp.financial_seminar_and_workshop_management.repository.UserRepository;
+
 import java.security.Key;
 import java.util.Date;
+import java.util.*;
 
 @Component
 public class JwtUtil {
+    private UserRepository userRepository;
 
-    // 256-bit key required for HS256
-    private final Key SECRET_KEY = Keys.hmacShaKeyFor("this_is_a_very_long_secret_key_for_jwt_123456".getBytes());
-    private final long EXPIRATION = 1000 * 60 * 60 * 10; // 10 hours
+    @Autowired
+    public JwtUtil(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
 
-    public String generateToken(UserDetails userDetails) {
-        String role = userDetails.getAuthorities().stream()
-                .findFirst()
-                .map(a -> a.getAuthority())
-                .orElse("USER");
+    private final String secret = "secretKey000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
+
+    private final int expiration = 86400;
+
+    public String generateToken(String username) {
+        Date now = new Date();
+        Date expiryDate = new Date(now.getTime() + expiration * 1000);
+        User user = userRepository.findByUsername(username);
+
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("sub", username);
+
+        // Assign role based on user type
+        claims.put("role", user.getRole());
 
         return Jwts.builder()
-                .setSubject(userDetails.getUsername())
-                .claim("role", role)   // add role claim
-                .setIssuedAt(new Date(System.currentTimeMillis()))
-                .setExpiration(new Date(System.currentTimeMillis() + EXPIRATION))
-                .signWith(SECRET_KEY, SignatureAlgorithm.HS256)
+                .setClaims(claims)
+                .setIssuedAt(now)
+                .setExpiration(expiryDate)
+                .signWith(SignatureAlgorithm.HS512, secret)
                 .compact();
     }
 
+    public Claims extractAllClaims(String token) {
+        Claims claims;
+        try {
+            claims = Jwts.parser()
+                    .setSigningKey(secret)
+                    .parseClaimsJws(token)
+                    .getBody();
+        } catch (Exception e) {
+            claims = null;
+        }
+        return claims;
+    }
+
     public String extractUsername(String token) {
-        return Jwts.parserBuilder()
-                .setSigningKey(SECRET_KEY)
-                .build()
+        Claims claims = Jwts.parser()
+                .setSigningKey(secret)
                 .parseClaimsJws(token)
-                .getBody()
-                .getSubject();
+                .getBody();
+        return claims.getSubject();
     }
 
-    public String extractRole(String token) {
-        Object role = Jwts.parserBuilder()
-                .setSigningKey(SECRET_KEY)
-                .build()
-                .parseClaimsJws(token)
-                .getBody()
-                .get("role");
-        return role != null ? role.toString() : null;
-    }
-
-    public boolean validateToken(String token, UserDetails userDetails) {
-        String username = extractUsername(token);
-        Date expiration = Jwts.parserBuilder()
-                .setSigningKey(SECRET_KEY)
-                .build()
+    public boolean isTokenExpired(String token) {
+        Date expirationDate = Jwts.parser()
+                .setSigningKey(secret)
                 .parseClaimsJws(token)
                 .getBody()
                 .getExpiration();
-        return username.equals(userDetails.getUsername()) && expiration.after(new Date());
+        return expirationDate.before(new Date());
+    }
+
+    public boolean validateToken(String token, UserDetails userDetails) {
+        final String username = extractUsername(token);
+        return (username.equals(userDetails.getUsername()) && !isTokenExpired(token));
     }
 }
